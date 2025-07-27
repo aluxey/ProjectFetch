@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# ─────────────── COLORS ─────────────── #
+bld='\033[1m'
+rst='\033[0m'
+red='\033[0;31m'
+grn='\033[0;32m'
+blu='\033[0;34m'
+mag='\033[0;35m'
+cya='\033[0;36m'
+ylw='\033[0;33m'
+gry='\033[1;90m'
+
+# ─────────────── ICONS (NerdFont) ─────────────── #
+icon_folder="󰉋"
+icon_git=""
+icon_doc="󰈙"
+icon_clock="󰥔"
+icon_code=""
+icon_web=""
+icon_pkg="󰏗"
+
+# ─────────────── PROJECT METADATA ─────────────── #
+project_name=$(basename "$PWD")
+project_type=""
+ascii_logo=""
+
+# ─────────────── TYPE DETECTION ─────────────── #
+if [[ -f "package.json" ]]; then
+  project_type="Node.js"
+  ascii_logo='
+   ███    ██  ██████  ██████  ███████
+   ████   ██ ██    ██ ██   ██ ██
+   ██ ██  ██ ██    ██ ██   ██ █████
+   ██  ██ ██ ██    ██ ██   ██ ██
+   ██   ████  ██████  ██████  ███████
+  '
+elif [[ -f "composer.json" ]]; then
+  project_type="PHP / Symfony"
+  ascii_logo=$(cat <<'EOF'
+  ______  __    __   _______  __
+ /      ||  |  |  | |   ____||  |
+|  ,----'|  |__|  | |  |__   |  |
+|  |     |   __   | |   __|  |  |
+|  `----.|  |  |  | |  |____ |  `----.
+ \______||__|  |__| |_______||_______|
+EOF
+)
+elif [[ -f "pyproject.toml" || -f "requirements.txt" ]]; then
+  project_type="Python"
+  ascii_logo='
+  ______   __     __   ______   __
+ /\  ___\ /\ \   /\ "-.\ \ /\  ___\ /\ \
+ \ \  __\ \ \ \  \ \ \-.  \\ \  __\ \ \ \____
+  \ \_\    \ \_\  \ \_\\"\_\\ \_\    \ \_____\
+   \/_/     \/_/   \/_/ \/_/ \/_/     \/_____/
+  '
+elif [[ -f "Cargo.toml" ]]; then
+  project_type="Rust"
+  ascii_logo='
+   _____           _
+  |  __ \         | |
+  | |__) |__ _  __| |_
+  |  _  // _` |/ _` \ \
+  | | \ \ (_| | (_| |\ |
+  |_|  \_\__,_|\__,_| \_|
+  '
+elif [[ -f "go.mod" ]]; then
+  project_type="Go"
+  ascii_logo='
+   ░█▀▀░█▀█░░░█▀▀░█▀▄░█▀▀░█▀█░█▀█
+   ░█░█░█▀█░░░█▀▀░█░█░█▀▀░█▀█░█░█
+   ░▀▀▀░▀░▀░░░▀▀▀░▀▀░░▀▀▀░▀░▀░▀░▀
+  '
+else
+  project_type="Unknown"
+fi
+
+# ─────────────── INFO EXTRACTION ─────────────── #
+git_remote=$(git config --get remote.origin.url 2>/dev/null)
+last_commit=$(git log -1 --pretty=format:"%h %s" 2>/dev/null)
+readme=$(ls | grep -i readme || echo "❌")
+folders=$(ls -d */ 2>/dev/null | head -n 3 | paste -sd ", " -)
+
+# ─────────────── DISPLAY ─────────────── #
+echo -e "\n${ylw}${ascii_logo}${rst}"
+echo -e "${bld}${cya}󰲜  PROJECT: ${project_name}${rst}"
+echo -e "${gry}────────────────────────────────────────${rst}"
+echo -e "${icon_code} ${bld}Type:${rst}       ${project_type}"
+echo -e "${icon_folder} ${bld}Folders:${rst}    ${folders:-None}"
+echo -e "${icon_doc} ${bld}README:${rst}     ${readme}"
+[[ $git_remote ]] && echo -e "${icon_git} ${bld}Remote:${rst}     ${git_remote}"
+[[ $last_commit ]] && echo -e "${icon_clock} ${bld}Last Commit:${rst}  ${last_commit}"
+echo -e "${gry}────────────────────────────────────────${rst}\n"
