@@ -1,94 +1,442 @@
 #!/usr/bin/env bash
 
-# ─────────────── COLORS ─────────────── #
-bld='\033[1m'
-rst='\033[0m'
-red='\033[0;31m'
-grn='\033[0;32m'
-blu='\033[0;34m'
-mag='\033[0;35m'
-cya='\033[0;36m'
-ylw='\033[0;33m'
-gry='\033[1;90m'
 
-# ─────────────── ICONS (NerdFont) ─────────────── #
-icon_folder="󰉋"
-icon_git=""
-icon_doc="󰈙"
-icon_clock="󰥔"
-icon_code=""
-icon_web=""
-icon_pkg="󰏗"
+set -euo pipefail
 
-# ─────────────── PROJECT METADATA ─────────────── #
-project_name=$(basename "$PWD")
-project_type=""
-ascii_logo=""
+# ─── Configuration ───────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/projectfetch"
+ASCII_DIR="$CONFIG_DIR/ascii"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/projectfetch"
 
-# ─────────────── TYPE DETECTION ─────────────── #
-if [[ -f "package.json" ]]; then
-  project_type="Node.js"
-  ascii_logo='
-   ███    ██  ██████  ██████  ███████
-   ████   ██ ██    ██ ██   ██ ██
-   ██ ██  ██ ██    ██ ██   ██ █████
-   ██  ██ ██ ██    ██ ██   ██ ██
-   ██   ████  ██████  ██████  ███████
-  '
-elif [[ -f "composer.json" ]]; then
-  project_type="PHP / Symfony"
-  ascii_logo=$(cat <<'EOF'
-  ______  __    __   _______  __
- /      ||  |  |  | |   ____||  |
-|  ,----'|  |__|  | |  |__   |  |
-|  |     |   __   | |   __|  |  |
-|  `----.|  |  |  | |  |____ |  `----.
- \______||__|  |__| |_______||_______|
-EOF
+# ─── Colors & Icons ──────────────────────────────────────────────────
+declare -A COLORS=(
+    [reset]="\033[0m"
+    [bold]="\033[1m"
+    [dim]="\033[2m"
+    [grey]="\033[90m"
+    [red]="\033[31m"
+    [green]="\033[32m"
+    [yellow]="\033[33m"
+    [blue]="\033[34m"
+    [purple]="\033[35m"
+    [cyan]="\033[36m"
+    [white]="\033[37m"
 )
-elif [[ -f "pyproject.toml" || -f "requirements.txt" ]]; then
-  project_type="Python"
-  ascii_logo='
-  ______   __     __   ______   __
- /\  ___\ /\ \   /\ "-.\ \ /\  ___\ /\ \
- \ \  __\ \ \ \  \ \ \-.  \\ \  __\ \ \ \____
-  \ \_\    \ \_\  \ \_\\"\_\\ \_\    \ \_____\
-   \/_/     \/_/   \/_/ \/_/ \/_/     \/_____/
-  '
-elif [[ -f "Cargo.toml" ]]; then
-  project_type="Rust"
-  ascii_logo='
-   _____           _
-  |  __ \         | |
-  | |__) |__ _  __| |_
-  |  _  // _` |/ _` \ \
-  | | \ \ (_| | (_| |\ |
-  |_|  \_\__,_|\__,_| \_|
-  '
-elif [[ -f "go.mod" ]]; then
-  project_type="Go"
-  ascii_logo='
-   ░█▀▀░█▀█░░░█▀▀░█▀▄░█▀▀░█▀█░█▀█
-   ░█░█░█▀█░░░█▀▀░█░█░█▀▀░█▀█░█░█
-   ░▀▀▀░▀░▀░░░▀▀▀░▀▀░░▀▀▀░▀░▀░▀░▀
-  '
-else
-  project_type="Unknown"
-fi
 
-# ─────────────── INFO EXTRACTION ─────────────── #
-git_remote=$(git config --get remote.origin.url 2>/dev/null)
-last_commit=$(git log -1 --pretty=format:"%h %s" 2>/dev/null)
-readme=$(ls | grep -i readme || echo "❌")
-folders=$(ls -d */ 2>/dev/null | head -n 3 | paste -sd ", " -)
+declare -A ICONS=(
+  [rocket]="🚀"
+  [project]="🚀"
+  [type]="📦"
+  [size]="🗂️"
+  [files]="📄"
+  [file]="📄"
+  [dirs]="📁"
+  [folder]="📁"
+  [readme]="📝"
+  [version]="🧪"
+  [git]="🔧"
+  [branch]="🔀"
+  [commit]="🕒"
+  [remote]="🌐"
+  [status]="✅"
+  [created]="📅"
+  [shell]="💻"
+  [code]="🧠"
+  [lang]="🧪"
+  [time]="🕓"
+)
 
-# ─────────────── DISPLAY ─────────────── #
-echo -e "\n${ylw}${ascii_logo}${rst}"
-echo -e "${bld}${cya}󰲜  PROJECT: ${project_name}${rst}"
-echo -e "${gry}────────────────────────────────────────${rst}"
-echo -e "${icon_code} ${bld}Type:${rst}       ${project_type}"
-echo -e "${icon_folder} ${bld}Folders:${rst}    ${folders:-None}"
-echo -e "${icon_doc} ${bld}README:${rst}     ${readme}"
-[[ $git_remote ]] && echo -e "${icon_git} ${bld}Remote:${rst}     ${git_remote}"
-[[ $last_commit ]] && echo -e "${icon_clock} ${bld}Last Commit:${rst}  ${last_commit}"
-echo -e "${gry}────────────────────────────────────────${rst}\n"
+# ─── Fonctions utilitaires ───────────────────────────────────────────
+log_debug() {
+    [[ "${DEBUG:-}" == "1" ]] && echo "[DEBUG] $*" >&2
+}
+
+colorize() {
+    local color=$1
+    local text=$2
+    echo -e "${COLORS[$color]}${text}${COLORS[reset]}"
+}
+
+# ─── Détection du type de projet ────────────────────────────────────
+detect_project_type() {
+    local project_type="unknown"
+    local confidence=0
+
+    # Web/JavaScript/TypeScript
+    if [[ -f "package.json" ]]; then
+        if [[ -f "next.config.js" || -f "next.config.ts" ]]; then
+            project_type="nextjs"
+            confidence=90
+        elif [[ -f "nuxt.config.js" || -f "nuxt.config.ts" ]]; then
+            project_type="nuxtjs"
+            confidence=90
+        elif [[ -f "vite.config.js" || -f "vite.config.ts" ]]; then
+            project_type="vite"
+            confidence=85
+        elif [[ -f "angular.json" ]]; then
+            project_type="angular"
+            confidence=90
+        elif [[ -f "vue.config.js" || $(find . -name "*.vue" -print -quit 2>/dev/null) ]]; then
+            project_type="vue"
+            confidence=85
+        elif [[ -f "svelte.config.js" || $(find . -name "*.svelte" -print -quit 2>/dev/null) ]]; then
+            project_type="svelte"
+            confidence=85
+        elif grep -q '"type":\s*"module"' package.json 2>/dev/null; then
+            project_type="nodejs-esm"
+            confidence=75
+        else
+            project_type="nodejs"
+            confidence=80
+        fi
+    fi
+
+    # Python
+    if [[ -f "pyproject.toml" ]]; then
+        if grep -q "poetry" pyproject.toml 2>/dev/null; then
+            project_type="python-poetry"
+            confidence=85
+        else
+            project_type="python"
+            confidence=80
+        fi
+    elif [[ -f "requirements.txt" || -f "setup.py" || -f "Pipfile" ]]; then
+        if [[ -f "manage.py" ]]; then
+            project_type="django"
+            confidence=90
+        elif [[ -f "app.py" || $(find . -name "*.py" -exec grep -l "from flask import" {} \; -print -quit 2>/dev/null) ]]; then
+            project_type="flask"
+            confidence=85
+        else
+            project_type="python"
+            confidence=75
+        fi
+    fi
+
+    # PHP
+    if [[ -f "composer.json" ]]; then
+        if [[ -f "symfony.lock" || -d "config/packages" ]]; then
+            project_type="symfony"
+            confidence=90
+        elif [[ -f "artisan" ]]; then
+            project_type="laravel"
+            confidence=90
+        else
+            project_type="php"
+            confidence=80
+        fi
+    elif [[ $(find . -maxdepth 2 -name "*.php" -print -quit 2>/dev/null) ]]; then
+        project_type="php"
+        confidence=60
+    fi
+
+    # Rust
+    if [[ -f "Cargo.toml" ]]; then
+        project_type="rust"
+        confidence=95
+    fi
+
+    # Go
+    if [[ -f "go.mod" ]]; then
+        project_type="go"
+        confidence=95
+    fi
+
+    # C/C++
+    if [[ -f "CMakeLists.txt" ]]; then
+        project_type="cmake"
+        confidence=90
+    elif [[ -f "Makefile" && $(find . -maxdepth 2 -name "*.c" -print -quit 2>/dev/null) ]]; then
+        project_type="c"
+        confidence=85
+    elif [[ $(find . -maxdepth 2 -name "*.cpp" -o -name "*.cxx" -o -name "*.cc" -print -quit 2>/dev/null) ]]; then
+        project_type="cpp"
+        confidence=80
+    fi
+
+    # Java
+    if [[ -f "pom.xml" ]]; then
+        project_type="maven"
+        confidence=90
+    elif [[ -f "build.gradle" || -f "build.gradle.kts" ]]; then
+        project_type="gradle"
+        confidence=90
+    elif [[ $(find . -maxdepth 2 -name "*.java" -print -quit 2>/dev/null) ]]; then
+        project_type="java"
+        confidence=70
+    fi
+
+    # .NET
+    if [[ $(find . -maxdepth 2 -name "*.csproj" -o -name "*.sln" -print -quit 2>/dev/null) ]]; then
+        project_type="dotnet"
+        confidence=90
+    elif [[ $(find . -maxdepth 2 -name "*.cs" -print -quit 2>/dev/null) ]]; then
+        project_type="csharp"
+        confidence=75
+    fi
+
+    # Ruby
+    if [[ -f "Gemfile" ]]; then
+        if [[ -f "config/application.rb" ]]; then
+            project_type="rails"
+            confidence=90
+        else
+            project_type="ruby"
+            confidence=85
+        fi
+    elif [[ $(find . -maxdepth 2 -name "*.rb" -print -quit 2>/dev/null) ]]; then
+        project_type="ruby"
+        confidence=70
+    fi
+
+    # Shell
+    if [[ $(find . -maxdepth 2 -name "*.sh" -print -quit 2>/dev/null) ]]; then
+        project_type="shell"
+        confidence=65
+    fi
+
+    # Docker
+    if [[ -f "Dockerfile" || -f "docker-compose.yml" || -f "docker-compose.yaml" ]]; then
+        if [[ $confidence -lt 50 ]]; then
+            project_type="docker"
+            confidence=75
+        fi
+    fi
+
+    log_debug "Detected project type: $project_type (confidence: $confidence%)"
+    echo "$project_type"
+}
+
+# ─── Informations Git ───────────────────────────────────────────────
+get_git_info() {
+    if [[ ! -d ".git" ]]; then
+        return
+    fi
+
+    local branch
+    local last_commit
+    local remote_url
+    local status
+
+    branch=$(git branch --show-current 2>/dev/null || echo "detached")
+    last_commit=$(git log -1 --format="%cr" 2>/dev/null || echo "aucun commit")
+    remote_url=$(git remote get-url origin 2>/dev/null | sed 's/.*github.com[:/]\([^/]*\/[^/]*\).*/\1/' | sed 's/\.git$//' || echo "pas de remote")
+
+    # Statut des fichiers
+    local staged unstaged untracked
+    staged=$(git diff --cached --name-only 2>/dev/null | wc -l)
+    unstaged=$(git diff --name-only 2>/dev/null | wc -l)
+    untracked=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l)
+
+    if [[ $staged -gt 0 || $unstaged -gt 0 || $untracked -gt 0 ]]; then
+        status="modifié"
+    else
+        status="propre"
+    fi
+
+    echo "$branch|$last_commit|$remote_url|$status"
+}
+
+# ─── Informations sur le projet ──────────────────────────────────────
+get_project_info() {
+    local project_name
+    local project_size
+    local num_files
+    local num_dirs
+    local readme_present
+    local created_at
+
+    project_name=$(basename "$(pwd)")
+
+    # Taille du projet (en excluant node_modules, .git, etc.)
+    project_size=$(du -sh . 2>/dev/null | cut -f1 | sed 's/[[:space:]]*$//' || echo "inconnue")
+
+    # Nombre de fichiers et dossiers (en excluant les dossiers cachés et communs)
+    num_files=$(find . -type f \
+        ! -path "./.git/*" \
+        ! -path "./node_modules/*" \
+        ! -path "./.next/*" \
+        ! -path "./dist/*" \
+        ! -path "./build/*" \
+        ! -path "./__pycache__/*" \
+        ! -path "./vendor/*" \
+        2>/dev/null | wc -l)
+
+    num_dirs=$(find . -type d \
+        ! -path "./.git" \
+        ! -path "./.git/*" \
+        ! -path "./node_modules" \
+        ! -path "./node_modules/*" \
+        ! -path "./.next" \
+        ! -path "./.next/*" \
+        ! -path "./dist" \
+        ! -path "./dist/*" \
+        ! -path "./build" \
+        ! -path "./build/*" \
+        ! -path "./__pycache__" \
+        ! -path "./__pycache__/*" \
+        ! -path "./vendor" \
+        ! -path "./vendor/*" \
+        2>/dev/null | wc -l)
+
+    # Présence d'un README
+    if [[ -f "README.md" || -f "README.rst" || -f "README.txt" || -f "readme.md" ]]; then
+        readme_present="oui"
+    else
+        readme_present="non"
+    fi
+
+    # Date de création (approximative)
+    if command -v stat >/dev/null; then
+        if stat -c %w . >/dev/null 2>&1; then
+            created_at=$(stat -c %w . 2>/dev/null | cut -d' ' -f1)
+        else
+            created_at=$(stat -f %SB . 2>/dev/null | cut -d' ' -f1-3)
+        fi
+    else
+        created_at="inconnue"
+    fi
+
+    echo "$project_name|$project_size|$num_files|$num_dirs|$readme_present|$created_at"
+}
+
+# ─── Informations spécifiques au langage ────────────────────────────
+get_language_info() {
+    local project_type=$1
+    local info=""
+
+    case $project_type in
+        "nodejs"|"nodejs-esm"|"nextjs"|"nuxtjs"|"vue"|"angular"|"svelte"|"vite")
+            if [[ -f "package.json" ]]; then
+                local node_version engine_version
+                node_version=$(node --version 2>/dev/null | sed 's/v//' || echo "n/a")
+                engine_version=$(jq -r '.engines.node // empty' package.json 2>/dev/null || echo "")
+                info="Node.js $node_version"
+                [[ -n "$engine_version" ]] && info="$info (requis: $engine_version)"
+            fi
+            ;;
+        "python"|"python-poetry"|"django"|"flask")
+            local python_version
+            python_version=$(python3 --version 2>/dev/null | cut -d' ' -f2 || python --version 2>/dev/null | cut -d' ' -f2 || echo "n/a")
+            info="Python $python_version"
+            ;;
+        "php"|"symfony"|"laravel")
+            local php_version
+            php_version=$(php --version 2>/dev/null | head -n1 | cut -d' ' -f2 | cut -d'-' -f1 || echo "n/a")
+            info="PHP $php_version"
+            ;;
+        "rust")
+            local rust_version
+            rust_version=$(rustc --version 2>/dev/null | cut -d' ' -f2 || echo "n/a")
+            info="Rust $rust_version"
+            ;;
+        "go")
+            local go_version
+            go_version=$(go version 2>/dev/null | cut -d' ' -f3 | sed 's/go//' || echo "n/a")
+            info="Go $go_version"
+            ;;
+    esac
+
+    echo "$info"
+}
+
+# ─── Affichage ───────────────────────────────────────────────────────
+display_ascii() {
+    local project_type=$1
+    local ascii_file="$ASCII_DIR/$project_type.txt"
+
+    # Fallback vers unknown.txt si le fichier spécifique n'existe pas
+    [[ ! -f "$ascii_file" ]] && ascii_file="$ASCII_DIR/unknown.txt"
+
+    if [[ -f "$ascii_file" ]]; then
+        cat "$ascii_file"
+    else
+        # ASCII par défaut si aucun fichier n'est trouvé
+        echo -e "$(colorize cyan "    ╭─────────────╮")"
+        echo -e "$(colorize cyan "    │  PROJECT    │")"
+        echo -e "$(colorize cyan "    │   FETCH     │")"
+        echo -e "$(colorize cyan "    ╰─────────────╯")"
+    fi
+}
+
+display_info() {
+    local project_type=$1
+    local project_info=$2
+    local git_info=$3
+    local lang_info=$4
+
+    # Parse project info
+    IFS='|' read -r project_name project_size num_files num_dirs readme_present created_at <<< "$project_info"
+
+    # Header
+    echo
+    echo -e "$(colorize yellow "${ICONS[rocket]:-} $project_name") $(colorize dim "($project_type)")" # Corrected line
+    echo -e "$(colorize grey "────────────────────────────────────────────")"
+
+    # Informations générales
+    echo -e "${ICONS[code]:-} $(colorize blue "Type       :") $project_type" # Corrected line
+    echo -e "${ICONS[size]} $(colorize cyan "Taille     :") $project_size"
+    echo -e "${ICONS[file]} $(colorize cyan "Fichiers   :") $num_files"
+    echo -e "${ICONS[folder]} $(colorize cyan "Dossiers   :" ) $num_dirs"
+    echo -e "${ICONS[file]} $(colorize cyan "README     :") $readme_present"
+
+    # Footer
+    echo -e "$(colorize grey "────────────────────────────────────────────")"
+    echo -e "${ICONS[time]} $(colorize green "Créé       :") $created_at"
+    echo -e "${ICONS[shell]} $(colorize purple "Shell      :") $(basename "$SHELL")"
+}
+
+# ─── Fonction principale ─────────────────────────────────────────────
+main() {
+    # Vérifier si on est dans un dossier de projet (éviter le spam)
+    if [[ $(pwd) == "$HOME" || $(pwd) == "/" ]]; then
+        return 0
+    fi
+
+    # Créer les dossiers de config si nécessaire
+    mkdir -p "$CONFIG_DIR" "$ASCII_DIR" "$CACHE_DIR"
+
+    # Détection et collecte d'informations
+    local project_type
+    local project_info
+    local git_info
+    local lang_info
+
+    project_type=$(detect_project_type)
+    project_info=$(get_project_info)
+    git_info=$(get_git_info)
+    lang_info=$(get_language_info "$project_type")
+
+    # Affichage
+    display_ascii "$project_type"
+    display_info "$project_type" "$project_info" "$git_info" "$lang_info"
+
+    echo
+}
+
+# ─── Options de ligne de commande ───────────────────────────────────
+case "${1:-}" in
+    --help|-h)
+        echo "ProjectFetch - Un tableau de bord terminal pour vos projets"
+        echo ""
+        echo "Usage: projectfetch [options]"
+        echo ""
+        echo "Options:"
+        echo "  -h, --help     Affiche cette aide"
+        echo "  --version      Affiche la version"
+        echo "  --debug        Active le mode debug"
+        echo ""
+        exit 0
+        ;;
+    --version)
+        echo "ProjectFetch v2.0.0"
+        exit 0
+        ;;
+    --debug)
+        export DEBUG=1
+        ;;
+esac
+
+# Exécution
+main "$@"
