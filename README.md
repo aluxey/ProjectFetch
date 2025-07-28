@@ -6,6 +6,12 @@ Inspired by `neofetch`, **ProjectFetch** displays smart, visual summaries for an
 
 ---
 
+## 📸 Screenshot
+
+![Screen afichage terminal](/Data/screenTerminal_v1.1.png)
+
+---
+
 ## ✨ Features
 
 - 🔍 **Auto-detects** project type (Node.js, Symfony, Python, Rust, etc.)
@@ -71,12 +77,6 @@ project_cd "$PWD"
 - [ ] Silent mode for automation pipelines
 - [ ] Modular display styles (ASCII / flat / emoji-only)
 - [ ] Custom themes (e.g. dark/light, monochrome, icons off)
-
----
-
-## 📸 Screenshot
-
-![Screen afichage terminal](/Data/screenTerminal.png)
 
 ---
 
