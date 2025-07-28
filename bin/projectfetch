@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 set -euo pipefail
 
 # ─── Configuration ───────────────────────────────────────────────────
@@ -26,36 +25,34 @@ declare -A COLORS=(
 
 declare -A ICONS=(
   [rocket]="🚀"
-  [project]="🚀"
   [type]="📦"
   [size]="🗂️"
-  [files]="📄"
   [file]="📄"
-  [dirs]="📁"
   [folder]="📁"
   [readme]="📝"
-  [version]="🧪"
-  [git]="🔧"
   [branch]="🔀"
   [commit]="🕒"
   [remote]="🌐"
   [status]="✅"
   [created]="📅"
   [shell]="💻"
-  [code]="🧠"
   [lang]="🧪"
   [time]="🕓"
 )
 
-# ─── Fonctions utilitaires ───────────────────────────────────────────
-log_debug() {
-    [[ "${DEBUG:-}" == "1" ]] && echo "[DEBUG] $*" >&2
-}
+# ─── Utilitaires ─────────────────────────────────────────────────────
+log_debug() { [[ "${DEBUG:-}" == "1" ]] && echo "[DEBUG] $*" >&2; }
+colorize() { echo -e "${COLORS[$1]}$2${COLORS[reset]}"; }
 
-colorize() {
-    local color=$1
-    local text=$2
-    echo -e "${COLORS[$color]}${text}${COLORS[reset]}"
+# Fonction pour calculer la longueur réelle d'une chaîne (sans codes couleur/emoji)
+get_display_width() {
+    local str="$1"
+    # Enlever les codes ANSI
+    str=$(echo -e "$str" | sed 's/\x1b\[[0-9;]*m//g')
+    # Les emojis comptent pour 2 caractères en largeur d'affichage
+    local emoji_count=$(echo "$str" | grep -o '[🚀📦🗂️📄📁📝🔀🕒🌐✅📅💻🧪🕓]' | wc -l)
+    local base_length=${#str}
+    echo $((base_length + emoji_count))
 }
 
 # ─── Détection du type de projet ────────────────────────────────────
@@ -341,96 +338,163 @@ get_language_info() {
     echo "$info"
 }
 
-# ─── Affichage ───────────────────────────────────────────────────────
-display_ascii() {
-    local project_type=$1
-    local ascii_file="$ASCII_DIR/$project_type.txt"
-
-    # Fallback vers unknown.txt si le fichier spécifique n'existe pas
-    [[ ! -f "$ascii_file" ]] && ascii_file="$ASCII_DIR/unknown.txt"
-
-    if [[ -f "$ascii_file" ]]; then
-        cat "$ascii_file"
-    else
-        # ASCII par défaut si aucun fichier n'est trouvé
-        echo -e "$(colorize cyan "    ╭─────────────╮")"
-        echo -e "$(colorize cyan "    │  PROJECT    │")"
-        echo -e "$(colorize cyan "    │   FETCH     │")"
-        echo -e "$(colorize cyan "    ╰─────────────╯")"
-    fi
-}
-
-display_info() {
-    local project_type=$1
-    local project_info=$2
-    local git_info=$3
-    local lang_info=$4
-
-    # Parse project info
+# ─── Construire le tableau d'infos ─────────────────────────────────────
+build_info_array() {
+    local project_type=$1 project_info=$2 git_info=$3 lang_info=$4
     IFS='|' read -r project_name project_size num_files num_dirs readme_present created_at <<< "$project_info"
 
-    # Header
-    echo
-    echo -e "$(colorize yellow "${ICONS[rocket]:-} $project_name") $(colorize dim "($project_type)")" # Corrected line
-    echo -e "$(colorize grey "────────────────────────────────────────────")"
+    info_lines=()
+    info_lines+=("$(colorize bold "${ICONS[rocket]} $project_name") $(colorize dim "($project_type)")")
+    info_lines+=("")  # placeholder for top separator
 
-    # Informations générales
-    echo -e "${ICONS[code]:-} $(colorize blue "Type       :") $project_type" # Corrected line
-    echo -e "${ICONS[size]} $(colorize cyan "Taille     :") $project_size"
-    echo -e "${ICONS[file]} $(colorize cyan "Fichiers   :") $num_files"
-    echo -e "${ICONS[folder]} $(colorize cyan "Dossiers   :" ) $num_dirs"
-    echo -e "${ICONS[file]} $(colorize cyan "README     :") $readme_present"
+    info_lines+=("  ${ICONS[type]} $(colorize blue "Type")     : $project_type")
+    info_lines+=("  ${ICONS[size]} $(colorize yellow "Taille")   : $project_size")
+    info_lines+=("  ${ICONS[file]} $(colorize green "Fichiers") : $num_files")
+    info_lines+=("  ${ICONS[folder]} $(colorize cyan "Dossiers") : $num_dirs")
+    info_lines+=("  ${ICONS[readme]} $(colorize purple "README")   : $readme_present")
 
-    # Footer
-    echo -e "$(colorize grey "────────────────────────────────────────────")"
-    echo -e "${ICONS[time]} $(colorize green "Créé       :") $created_at"
-    echo -e "${ICONS[shell]} $(colorize purple "Shell      :") $(basename "$SHELL")"
-}
-
-# ─── Fonction principale ─────────────────────────────────────────────
-main() {
-    # Vérifier si on est dans un dossier de projet (éviter le spam)
-    if [[ $(pwd) == "$HOME" || $(pwd) == "/" ]]; then
-        return 0
+    if [[ -n "$git_info" ]]; then
+        IFS='|' read -r branch last_commit remote_url status <<< "$git_info"
+        info_lines+=("  ${ICONS[branch]} $(colorize blue "Branche")  : $branch")
+        info_lines+=("  ${ICONS[commit]} $(colorize yellow "Dernier")  : $last_commit")
+        info_lines+=("  ${ICONS[remote]} $(colorize cyan "Remote")   : $remote_url")
+        info_lines+=("  ${ICONS[status]} $(colorize green "Statut")   : $status")
     fi
 
-    # Créer les dossiers de config si nécessaire
+    [[ -n "$lang_info" ]] && info_lines+=("  ${ICONS[lang]} $(colorize purple "Langage")  : $lang_info")
+
+    info_lines+=("")  # placeholder for bottom separator
+    info_lines+=("  ${ICONS[created]} $(colorize grey "Créé")     : $created_at")
+    info_lines+=("  ${ICONS[shell]} $(colorize grey "Shell")    : $(basename "$SHELL")")
+
+    # Calculer la largeur max des infos pour les séparateurs
+    local max_info_width=0
+    for line in "${info_lines[@]}"; do
+        if [[ -n "$line" && "$line" != *"placeholder"* ]]; then
+            local width=$(get_display_width "$line")
+            (( width > max_info_width )) && max_info_width=$width
+        fi
+    done
+
+    # Créer les séparateurs avec la bonne largeur
+    local sep_len=$((max_info_width > 50 ? max_info_width : 50))
+    local sep=$(printf '%*s' "$sep_len" '' | tr ' ' '─')
+    info_lines[1]=$(colorize grey "$sep")
+    info_lines[$((${#info_lines[@]} - 3))]=$(colorize grey "$sep")
+}
+
+# ─── Affichage côte à côte ─────────────────────────────────────────────
+display_side_by_side() {
+    local ascii_h=${#ascii_lines[@]}
+    local info_h=${#info_lines[@]}
+    local max_h=$(( ascii_h > info_h ? ascii_h : info_h ))
+
+    for ((i=0; i<max_h; i++)); do
+        local ascii_line="${ascii_lines[i]:-}"
+        local info_line="${info_lines[i]:-}"
+
+        # Calculer le padding nécessaire
+        local ascii_display_width=$(get_display_width "$ascii_line")
+        local padding_needed=$((ascii_width - ascii_display_width))
+
+        printf "%s%*s  %s\n" "$ascii_line" "$padding_needed" "" "$info_line"
+    done
+}
+
+# ─── Créer ASCII par défaut si inexistant ──────────────────────────────
+create_default_ascii() {
+    mkdir -p "$ASCII_DIR"
+
+    # ASCII pour shell
+    if [[ ! -f "$ASCII_DIR/shell.txt" ]]; then
+        cat > "$ASCII_DIR/shell.txt" << 'EOF'
+   ▄████▄   ▄▄▄       ▄▄▄       ▄▄▄▄
+  ▒██▀ ▀█  ▒████▄    ▒████▄    ▒██▀ ▀█
+  ▒▓█    ▄ ▒██  ▀█▄  ▒██  ▀█▄  ▒▓█    ▄
+  ▒▓▓▄ ▄██▒░██▄▄▄▄██ ░██▄▄▄▄██ ▒▓▓▄ ▄██▒
+  ▒ ▓███▀ ░ ▓█   ▓██▒ ▓█   ▓██▒▒ ▓███▀ ░
+  ░ ░▒ ▒  ░ ▒▒   ▓▒█░ ▒▒   ▓▒█░░ ░▒ ▒  ░
+    ░  ▒     ▒   ▒▒ ░  ▒   ▒▒ ░  ░  ▒
+  ░          ░   ▒     ░   ▒   ░
+  ░ ░            ░  ░      ░  ░░ ░
+  ░                           ░
+EOF
+    fi
+
+    # ASCII pour nodejs
+    if [[ ! -f "$ASCII_DIR/nodejs.txt" ]]; then
+        cat > "$ASCII_DIR/nodejs.txt" << 'EOF'
+   ███▄    █  ▒█████  ▓█████▄ ▓█████
+   ██ ▀█   █ ▒██▒  ██▒▒██▀ ██▌▓█   ▀
+  ▓██  ▀█ ██▒▒██░  ██▒░██   █▌▒███
+  ▓██▒  ▐▌██▒▒██   ██░░▓█▄   ▌▒▓█  ▄
+  ▒██░   ▓██░░ ████▓▒░░▒████▓ ░▒████▒
+  ░ ▒░   ▒ ▒ ░ ▒░▒░▒░  ▒▒▓  ▒ ░░ ▒░ ░
+  ░ ░░   ░ ▒░  ░ ▒ ▒░  ░ ▒  ▒  ░ ░  ░
+     ░   ░ ░ ░ ░ ░ ▒   ░ ░  ░    ░
+           ░     ░ ░     ░       ░  ░
+                       ░
+EOF
+    fi
+
+    # ASCII pour unknown
+    if [[ ! -f "$ASCII_DIR/unknown.txt" ]]; then
+        cat > "$ASCII_DIR/unknown.txt" << 'EOF'
+  ██▓███   ██▀███   ▒█████   ▄▄▄██▀▀▀▓█████▄▄▄█████▓
+ ▓██░  ██▒▓██ ▒ ██▒▒██▒  ██▒   ▒██   ▓█   ▀▓  ██▒ ▓▒
+ ▓██░ ██▓▒▓██ ░▄█ ▒▒██░  ██▒   ░██   ▒███  ▒ ▓██░ ▒░
+ ▒██▄█▓▒ ▒▒██▀▀█▄  ▒██   ██░▓██▄██▓  ▒▓█  ▄░ ▓██▓ ░
+ ▒██▒ ░  ░░██▓ ▒██▒░ ████▓▒░ ▓███▒   ░▒████▒ ▒██▒ ░
+ ▒▓▒░ ░  ░░ ▒▓ ░▒▓░░ ▒░▒░▒░  ▒▓▒▒░   ░░ ▒░ ░ ▒ ░░
+ ░▒ ░       ░▒ ░ ▒░  ░ ▒ ▒░  ▒ ░▒░    ░ ░  ░   ░
+ ░░         ░░   ░ ░ ░ ░ ▒   ░ ░ ░      ░    ░
+             ░         ░ ░   ░   ░      ░  ░
+EOF
+    fi
+}
+
+# ─── Entrée principale ─────────────────────────────────────────────────
+main() {
+    [[ $(pwd) =~ ^($HOME|/)$ ]] && return 0
     mkdir -p "$CONFIG_DIR" "$ASCII_DIR" "$CACHE_DIR"
 
-    # Détection et collecte d'informations
-    local project_type
-    local project_info
-    local git_info
-    local lang_info
+    create_default_ascii
 
     project_type=$(detect_project_type)
     project_info=$(get_project_info)
-    git_info=$(get_git_info)
+    git_info=$(get_git_info || true)
     lang_info=$(get_language_info "$project_type")
 
-    # Affichage
-    display_ascii "$project_type"
-    display_info "$project_type" "$project_info" "$git_info" "$lang_info"
+    # Charger l'ASCII approprié
+    if [[ -f "$ASCII_DIR/${project_type}.txt" ]]; then
+        mapfile -t ascii_lines < "$ASCII_DIR/${project_type}.txt"
+    else
+        mapfile -t ascii_lines < "$ASCII_DIR/unknown.txt"
+    fi
 
+    # Calculer la largeur réelle de l'ASCII
+    ascii_width=0
+    for line in "${ascii_lines[@]}"; do
+        local width=$(get_display_width "$line")
+        (( width > ascii_width )) && ascii_width=$width
+    done
+    ascii_width=$((ascii_width + 4))  # Ajouter un peu de padding
+
+    build_info_array "$project_type" "$project_info" "$git_info" "$lang_info"
+
+    echo
+    display_side_by_side
     echo
 }
 
-# ─── Options de ligne de commande ───────────────────────────────────
+# ─── CLI ──────────────────────────────────────────────────────────────
 case "${1:-}" in
     --help|-h)
-        echo "ProjectFetch - Un tableau de bord terminal pour vos projets"
-        echo ""
-        echo "Usage: projectfetch [options]"
-        echo ""
-        echo "Options:"
-        echo "  -h, --help     Affiche cette aide"
-        echo "  --version      Affiche la version"
-        echo "  --debug        Active le mode debug"
-        echo ""
+        printf "ProjectFetch - terminal dashboard\nUsage: projectfetch [options]\n  -h, --help    Aide\n  --version     Version\n  --debug       Debug\n"
         exit 0
         ;;
     --version)
-        echo "ProjectFetch v2.0.0"
+        echo "ProjectFetch v2.2.1"
         exit 0
         ;;
     --debug)
@@ -438,5 +502,4 @@ case "${1:-}" in
         ;;
 esac
 
-# Exécution
 main "$@"
